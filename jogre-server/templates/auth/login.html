@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Login | Jogre</title>
+
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        code {
+            font-family: monospace;
+            background: #ecebec;
+            border: 1px solid #d1d1d2;
+            color: #d81f58;
+            padding: .1rem;
+            border-radius: .3rem;
+        }
+
+        body {
+            margin: 0;
+            line-height: 1.5rem;
+            min-height: 100vh;
+            min-width: 100vw;
+            display: flex;
+            background: #f1f5f9;
+            color: #334155;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            font-family: sans-serif;
+        }
+
+        .container {
+            max-width: 35rem;
+        }
+
+        main, section {
+            background: #fff;
+            padding: 2rem;
+            width: 100%;
+            border-radius: 2rem;
+        }
+
+        section.error {
+            background: #ef4444;
+            color: white;
+            padding: 1.2rem;
+            margin-bottom: 1rem;
+            width: 100%;
+        }
+
+        label, input, button {
+            display: block;
+            width: 100%;
+        }
+
+        label {
+            margin-top: .5rem;
+            font-size: .85rem;
+        }
+
+        input {
+            margin-top: .25rem;
+            background: #fff;
+            border: 1px solid #cbd5e1;
+            font-size: .875rem;
+            line-height: 1.25rem;
+        }
+
+        input:focus {
+            border-color: #0EA5E9;
+            outline: 2px solid #0000;
+            outline-offset: 2px;
+            box-shadow: #0EA5E9 0 0 0 1px;
+        }
+
+        input, button {
+            padding: .5rem .75rem;
+            border-radius: .375rem;
+        }
+
+        button {
+            margin-top: 1rem;
+            background: #0EA5E9;
+            color: #fff;
+            font-weight: 600;
+            border: 0;
+            padding: 10px 20px;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background-color: #0369A1;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        {% if let Some(reason) = reason %}
+            <section class="error">
+                {% match reason %}
+                    {% when UnauthenticatedState::InvalidUserPass %}
+                        Invalid username or password
+                    {% when UnauthenticatedState::MissingUserPass %}
+                        You must enter a username and password
+                    {% when UnauthenticatedState::InvalidCsrfToken %}
+                        Invalid CSRF token
+                {% endmatch %}
+            </section>
+        {% endif %}
+
+        <main>
+            <div>
+                <strong>
+                    Please login to confirm you would like to allow
+                    <code>{{ solicitation.pre_grant().client_id }}</code>
+                    access
+                    {% if solicitation.pre_grant().scope.iter().next().is_some() %}
+                        to <code>{{ solicitation.pre_grant().scope }}</code>
+                    {% endif %}
+                    via <code>{{ solicitation.pre_grant().redirect_uri }}</code>.
+                </strong>
+            </div>
+
+            <form method="POST">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token.form_value() }}" />
+
+                <label for="username">Username</label>
+                <input type="text" name="username" id="username" />
+
+                <label for="password">Password</label>
+                <input type="password" name="password" id="password" />
+
+                <button type="submit">Login</button>
+            </form>
+        </main>
+    </div>
+</body>
+</html>

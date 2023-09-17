@@ -1,0 +1,5 @@
+private-key = "mycoolatleast32byteprivatekey"
+
+[store]
+type = "rocksdb"
+path = "db"

@@ -1,5 +1,6 @@
 [workspace]
 resolver = "2"
 members = [
-    "jmap-proto"
+    "jmap-proto",
+    "jogre-server"
 ]
