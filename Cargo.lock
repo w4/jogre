@@ -922,6 +922,7 @@ dependencies = [
  "futures",
  "hex",
  "hmac",
+ "jmap-proto",
  "oxide-auth",
  "oxide-auth-axum",
  "rand",

@@ -6,6 +6,8 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+jmap-proto = { path = "../jmap-proto" }
+
 argon2 = "0.5"
 askama = "0.12"
 axum = "0.6"
@@ -25,7 +27,7 @@ tower-cookies = "0.9"
 toml = "0.8"
 tracing = "0.1"
 tracing-subscriber = "0.3"
-url = "2.4"
+url = { version = "2.4", features = ["serde"] }
 uuid = { version = "1.4", features = ["v4", "serde"] }
 serde = { version = "1.0.188", features = ["derive"] }
 sha3 = "0.10"

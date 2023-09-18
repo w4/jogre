@@ -11,7 +11,10 @@ use clap::Parser;
 use rand::RngCore;
 use tracing::info;
 
-use crate::{context::Context, store::UserProvider};
+use crate::{
+    context::Context,
+    store::{AccountAccessLevel, AccountProvider, UserProvider},
+};
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about)]
@@ -54,6 +57,17 @@ async fn create_root_if_none_exists(context: &Context) {
 
     info!("User root created with password {password}");
 
-    let root = store::User::new("root".into(), &password);
-    context.store.create_user(root).await.unwrap();
+    let root_user = store::User::new("root".into(), &password);
+    let root_user_id = root_user.id;
+    context.store.create_user(root_user).await.unwrap();
+
+    let root_account = store::Account::new("root".into(), true, false);
+    let root_account_id = root_account.id;
+    context.store.create_account(root_account).await.unwrap();
+
+    context
+        .store
+        .attach_account_to_user(root_account_id, root_user_id, AccountAccessLevel::Owner)
+        .await
+        .unwrap();
 }

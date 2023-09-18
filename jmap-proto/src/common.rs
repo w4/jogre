@@ -14,6 +14,12 @@ pub struct Int(i64);
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub struct UnsignedInt(u64);
 
+impl From<u64> for UnsignedInt {
+    fn from(value: u64) -> Self {
+        Self(value)
+    }
+}
+
 /// All record ids are assigned by the server and are immutable.
 ///
 /// Where "Id" is given as a data type, it means a "String" of at least 1
@@ -40,7 +46,7 @@ pub struct UnsignedInt(u64);
 /// A good solution to these issues is to prefix every id with a single
 /// alphabetical character.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Hash)]
-pub struct Id<'a>(#[serde(borrow)] Cow<'a, str>);
+pub struct Id<'a>(#[serde(borrow)] pub Cow<'a, str>);
 
 /// Where "Date" is given as a type, it means a string in "date-time"
 /// format [RFC3339].  To ensure a normalised form, the "time-secfrac"
@@ -64,4 +70,4 @@ pub struct UtcDate(chrono::DateTime<Utc>);
 /// has changed (e.g., an account has been added or removed), so they
 /// need to refetch the object.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SessionState<'a>(#[serde(borrow)] Cow<'a, str>);
+pub struct SessionState<'a>(#[serde(borrow)] pub Cow<'a, str>);

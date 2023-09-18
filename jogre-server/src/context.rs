@@ -1,12 +1,17 @@
 use std::sync::Arc;
 
-use crate::{config::Config, store::Store};
+use crate::{
+    config::{Config, CoreCapabilities},
+    store::Store,
+};
 
 pub mod oauth2;
 
 pub struct Context {
     pub oauth2: oauth2::OAuth2,
     pub store: Arc<Store>,
+    pub base_url: url::Url,
+    pub core_capabilities: CoreCapabilities,
 }
 
 impl Context {
@@ -17,6 +22,8 @@ impl Context {
         Self {
             oauth2: oauth2::OAuth2::new(store.clone(), derived_keys),
             store,
+            base_url: config.base_url,
+            core_capabilities: config.core_capabilities,
         }
     }
 }

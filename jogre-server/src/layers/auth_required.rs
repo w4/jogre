@@ -35,5 +35,7 @@ pub async fn auth_required_middleware<B: Send + 'static>(
 
     debug!(?grant, "Request authorized");
 
+    request.extensions_mut().insert(grant);
+
     next.run(request).await
 }
