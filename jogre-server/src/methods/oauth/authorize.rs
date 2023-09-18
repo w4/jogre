@@ -6,7 +6,6 @@ use oxide_auth_axum::{OAuthResponse, WebError};
 
 use crate::context::{oauth2::OAuthRequestWrapper, Context};
 
-#[allow(clippy::unused_async)]
 pub async fn handle(
     State(context): State<Arc<Context>>,
     request: OAuthRequestWrapper,
@@ -14,5 +13,6 @@ pub async fn handle(
     context
         .oauth2
         .authorize(request)
+        .await
         .map_err(endpoint::Error::pack)
 }

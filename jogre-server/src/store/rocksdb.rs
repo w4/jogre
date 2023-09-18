@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::Arc};
 
 use axum::async_trait;
 use rocksdb::{IteratorMode, MergeOperands, Options, DB};
@@ -27,7 +27,7 @@ pub struct Config {
 
 // TODO: lots of blocking on async thread
 pub struct RocksDb {
-    db: DB,
+    db: Arc<DB>,
 }
 
 impl RocksDb {
@@ -50,7 +50,7 @@ impl RocksDb {
         )
         .unwrap();
 
-        Self { db }
+        Self { db: Arc::new(db) }
     }
 }
 
@@ -114,14 +114,19 @@ impl AccountProvider for RocksDb {
     type Error = Error;
 
     async fn create_account(&self, account: Account) -> Result<(), Self::Error> {
-        let bytes = bincode::serde::encode_to_vec(&account, BINCODE_CONFIG).unwrap();
+        let db = self.db.clone();
 
-        let by_uuid_handle = self.db.cf_handle(ACCOUNTS_BY_UUID).unwrap();
-        self.db
-            .put_cf(by_uuid_handle, account.id.as_bytes(), bytes)
-            .unwrap();
+        tokio::task::spawn_blocking(move || {
+            let bytes = bincode::serde::encode_to_vec(&account, BINCODE_CONFIG).unwrap();
 
-        Ok(())
+            let by_uuid_handle = db.cf_handle(ACCOUNTS_BY_UUID).unwrap();
+            db.put_cf(by_uuid_handle, account.id.as_bytes(), bytes)
+                .unwrap();
+
+            Ok(())
+        })
+        .await
+        .unwrap()
     }
 
     async fn attach_account_to_user(
@@ -130,17 +135,20 @@ impl AccountProvider for RocksDb {
         user: Uuid,
         access: AccountAccessLevel,
     ) -> Result<(), Self::Error> {
-        {
-            let access_handle = self.db.cf_handle(ACCOUNTS_ACCESS_BY_USER).unwrap();
+        let db = self.db.clone();
+
+        tokio::task::spawn_blocking(move || {
+            let access_handle = db.cf_handle(ACCOUNTS_ACCESS_BY_USER).unwrap();
 
             let mut compound_key = [0_u8; 32];
             compound_key[..16].copy_from_slice(user.as_bytes());
             compound_key[16..].copy_from_slice(account.as_bytes());
 
-            self.db
-                .put_cf(access_handle, compound_key, (access as u8).to_be_bytes())
+            db.put_cf(access_handle, compound_key, (access as u8).to_be_bytes())
                 .unwrap();
-        }
+        })
+        .await
+        .unwrap();
 
         self.increment_seq_number_for_user(user).await.unwrap();
 
@@ -148,28 +156,33 @@ impl AccountProvider for RocksDb {
     }
 
     async fn get_accounts_for_user(&self, user_id: Uuid) -> Result<Vec<Account>, Self::Error> {
-        let access_handle = self.db.cf_handle(ACCOUNTS_ACCESS_BY_USER).unwrap();
-        let account_handle = self.db.cf_handle(ACCOUNTS_BY_UUID).unwrap();
+        let db = self.db.clone();
 
-        Ok(self
-            .db
-            .prefix_iterator_cf(access_handle, user_id.as_bytes())
-            .map(Result::unwrap)
-            .filter_map(|(key, _access_level)| {
-                let Some(account) = key.strip_prefix(user_id.as_bytes()) else {
-                    panic!("got invalid key from rocksdb");
-                };
+        tokio::task::spawn_blocking(move || {
+            let access_handle = db.cf_handle(ACCOUNTS_ACCESS_BY_USER).unwrap();
+            let account_handle = db.cf_handle(ACCOUNTS_BY_UUID).unwrap();
 
-                let Some(account_bytes) = self.db.get_cf(account_handle, account).unwrap() else {
-                    return None;
-                };
+            Ok(db
+                .prefix_iterator_cf(access_handle, user_id.as_bytes())
+                .map(Result::unwrap)
+                .filter_map(|(key, _access_level)| {
+                    let Some(account) = key.strip_prefix(user_id.as_bytes()) else {
+                        panic!("got invalid key from rocksdb");
+                    };
 
-                let (res, _): (Account, _) =
-                    bincode::serde::decode_from_slice(&account_bytes, BINCODE_CONFIG).unwrap();
+                    let Some(account_bytes) = db.get_cf(account_handle, account).unwrap() else {
+                        return None;
+                    };
 
-                Some(res)
-            })
-            .collect())
+                    let (res, _): (Account, _) =
+                        bincode::serde::decode_from_slice(&account_bytes, BINCODE_CONFIG).unwrap();
+
+                    Some(res)
+                })
+                .collect())
+        })
+        .await
+        .unwrap()
     }
 }
 
@@ -178,78 +191,104 @@ impl UserProvider for RocksDb {
     type Error = Error;
 
     async fn increment_seq_number_for_user(&self, user: Uuid) -> Result<(), Self::Error> {
-        let seq_handle = self.db.cf_handle(USER_SEQ_NUMBER).unwrap();
-        self.db
-            .merge_cf(seq_handle, user.as_bytes(), "INCR")
-            .unwrap();
-        Ok(())
+        let db = self.db.clone();
+
+        tokio::task::spawn_blocking(move || {
+            let seq_handle = db.cf_handle(USER_SEQ_NUMBER).unwrap();
+            db.merge_cf(seq_handle, user.as_bytes(), "INCR").unwrap();
+            Ok(())
+        })
+        .await
+        .unwrap()
     }
 
     async fn fetch_seq_number_for_user(&self, user: Uuid) -> Result<u64, Self::Error> {
-        let seq_handle = self.db.cf_handle(USER_SEQ_NUMBER).unwrap();
+        let db = self.db.clone();
 
-        let Some(bytes) = self.db.get_pinned_cf(seq_handle, user.as_bytes()).unwrap() else {
-            return Ok(0);
-        };
+        tokio::task::spawn_blocking(move || {
+            let seq_handle = db.cf_handle(USER_SEQ_NUMBER).unwrap();
 
-        let mut val = [0_u8; std::mem::size_of::<u64>()];
-        val.copy_from_slice(&bytes);
+            let Some(bytes) = db.get_pinned_cf(seq_handle, user.as_bytes()).unwrap() else {
+                return Ok(0);
+            };
 
-        Ok(u64::from_be_bytes(val))
+            let mut val = [0_u8; std::mem::size_of::<u64>()];
+            val.copy_from_slice(&bytes);
+
+            Ok(u64::from_be_bytes(val))
+        })
+        .await
+        .unwrap()
     }
 
     async fn has_any_users(&self) -> Result<bool, Self::Error> {
-        let by_uuid_handle = self.db.cf_handle(USER_BY_UUID_CF).unwrap();
-        Ok(self
-            .db
-            .full_iterator_cf(by_uuid_handle, IteratorMode::Start)
-            .next()
-            .is_some())
+        let db = self.db.clone();
+
+        tokio::task::spawn_blocking(move || {
+            let by_uuid_handle = db.cf_handle(USER_BY_UUID_CF).unwrap();
+            Ok(db
+                .full_iterator_cf(by_uuid_handle, IteratorMode::Start)
+                .next()
+                .is_some())
+        })
+        .await
+        .unwrap()
     }
 
     async fn create_user(&self, user: User) -> Result<(), Self::Error> {
-        let bytes = bincode::serde::encode_to_vec(&user, BINCODE_CONFIG).unwrap();
+        let db = self.db.clone();
 
-        let by_uuid_handle = self.db.cf_handle(USER_BY_UUID_CF).unwrap();
-        self.db
-            .put_cf(by_uuid_handle, user.id.as_bytes(), bytes)
-            .unwrap();
+        tokio::task::spawn_blocking(move || {
+            let bytes = bincode::serde::encode_to_vec(&user, BINCODE_CONFIG).unwrap();
 
-        let by_username_handle = self.db.cf_handle(USER_BY_USERNAME_CF).unwrap();
-        self.db
-            .put_cf(
+            let by_uuid_handle = db.cf_handle(USER_BY_UUID_CF).unwrap();
+            db.put_cf(by_uuid_handle, user.id.as_bytes(), bytes)
+                .unwrap();
+
+            let by_username_handle = db.cf_handle(USER_BY_USERNAME_CF).unwrap();
+            db.put_cf(
                 by_username_handle,
                 user.username.as_bytes(),
                 user.id.as_bytes(),
             )
             .unwrap();
 
-        Ok(())
+            Ok(())
+        })
+        .await
+        .unwrap()
     }
 
     async fn get_by_username(&self, username: &str) -> Result<Option<User>, Error> {
-        let uuid = {
-            let by_username_handle = self.db.cf_handle(USER_BY_USERNAME_CF).unwrap();
-            self.db.get_pinned_cf(by_username_handle, username).unwrap()
-        };
+        let db = self.db.clone();
+        let username = username.to_string();
 
-        let Some(uuid) = uuid else {
-            return Ok(None);
-        };
+        tokio::task::spawn_blocking(move || {
+            let uuid = {
+                let by_username_handle = db.cf_handle(USER_BY_USERNAME_CF).unwrap();
+                db.get_pinned_cf(by_username_handle, username).unwrap()
+            };
 
-        let user_bytes = {
-            let by_uuid_handle = self.db.cf_handle(USER_BY_UUID_CF).unwrap();
-            self.db.get_pinned_cf(by_uuid_handle, &uuid).unwrap()
-        };
+            let Some(uuid) = uuid else {
+                return Ok(None);
+            };
 
-        let Some(user_bytes) = user_bytes else {
-            return Ok(None);
-        };
+            let user_bytes = {
+                let by_uuid_handle = db.cf_handle(USER_BY_UUID_CF).unwrap();
+                db.get_pinned_cf(by_uuid_handle, &uuid).unwrap()
+            };
 
-        Ok(Some(
-            bincode::serde::decode_from_slice(&user_bytes, BINCODE_CONFIG)
-                .unwrap()
-                .0,
-        ))
+            let Some(user_bytes) = user_bytes else {
+                return Ok(None);
+            };
+
+            Ok(Some(
+                bincode::serde::decode_from_slice(&user_bytes, BINCODE_CONFIG)
+                    .unwrap()
+                    .0,
+            ))
+        })
+        .await
+        .unwrap()
     }
 }

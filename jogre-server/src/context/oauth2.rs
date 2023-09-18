@@ -12,21 +12,22 @@ use axum::{
     http::{Method, Request},
     BoxError, RequestExt,
 };
-use futures::FutureExt;
 use oxide_auth::{
-    endpoint::{
-        Authorizer, Issuer, OwnerConsent, OwnerSolicitor, QueryParameter, Registrar, Scope,
-        Solicitation, WebRequest,
-    },
+    endpoint::{OAuthError, OwnerConsent, QueryParameter, Scope, Scopes, Solicitation, WebRequest},
     frontends::simple::{
         endpoint,
-        endpoint::{Generic, Vacant},
+        endpoint::{Error, ResponseCreator, Vacant},
     },
     primitives::{
         grant::Grant,
+        issuer::{IssuedToken, RefreshedToken},
         prelude::{AuthMap, Client, ClientMap, RandomGenerator, TokenMap},
         registrar::RegisteredUrl,
     },
+};
+use oxide_auth_async::endpoint::{
+    access_token::AccessTokenFlow, authorization::AuthorizationFlow, refresh::RefreshFlow,
+    resource::ResourceFlow, OwnerSolicitor,
 };
 use oxide_auth_axum::{OAuthRequest, OAuthResponse, WebError};
 use tower_cookies::Cookies;
@@ -41,8 +42,8 @@ use crate::{
 
 pub struct OAuth2 {
     pub registrar: ClientMap,
-    pub authorizer: Mutex<AuthMap<RandomGenerator>>,
-    pub issuer: Mutex<TokenMap<RandomGenerator>>,
+    pub authorizer: Authorizer,
+    pub issuer: Issuer,
     pub derived_keys: Arc<DerivedKeys>,
     pub store: Arc<Store>,
 }
@@ -57,8 +58,8 @@ impl OAuth2 {
             "test".parse::<Scope>().unwrap(),
         ));
 
-        let authorizer = Mutex::new(AuthMap::new(RandomGenerator::new(16)));
-        let issuer = Mutex::new(TokenMap::new(RandomGenerator::new(16)));
+        let authorizer = Authorizer::default();
+        let issuer = Issuer::default();
 
         Self {
             registrar,
@@ -69,47 +70,48 @@ impl OAuth2 {
         }
     }
 
-    pub fn resource(
+    pub async fn resource(
         &self,
         request: OAuthRequest,
     ) -> Result<Grant, Result<OAuthResponse, endpoint::Error<OAuthRequest>>> {
-        self.endpoint().resource_flow().execute(request)
+        match ResourceFlow::prepare(self.endpoint()) {
+            Ok(mut flow) => flow.execute(request).await,
+            Err(e) => Err(Err(e)),
+        }
     }
 
-    pub fn authorize(
+    pub async fn authorize(
         &self,
         request: OAuthRequestWrapper,
     ) -> Result<OAuthResponse, endpoint::Error<OAuthRequestWrapper>> {
-        self.endpoint().authorization_flow().execute(request)
+        AuthorizationFlow::prepare(self.endpoint())?
+            .execute(request)
+            .await
     }
 
-    pub fn token(
+    pub async fn token(
         &self,
         request: OAuthRequestWrapper,
     ) -> Result<OAuthResponse, endpoint::Error<OAuthRequestWrapper>> {
-        self.endpoint().access_token_flow().execute(request)
+        AccessTokenFlow::prepare(self.endpoint())?
+            .execute(request)
+            .await
     }
 
-    pub fn refresh(
+    pub async fn refresh(
         &self,
         request: OAuthRequestWrapper,
     ) -> Result<OAuthResponse, endpoint::Error<OAuthRequestWrapper>> {
-        self.endpoint().refresh_flow().execute(request)
+        RefreshFlow::prepare(self.endpoint())?
+            .execute(request)
+            .await
     }
 
-    fn endpoint(
-        &self,
-    ) -> Generic<
-        impl Registrar + '_,
-        impl Authorizer + '_,
-        impl Issuer + '_,
-        Solicitor<'_>,
-        Vec<Scope>,
-    > {
-        Generic {
+    fn endpoint(&self) -> Endpoint<'_> {
+        Endpoint {
             registrar: &self.registrar,
-            authorizer: self.authorizer.lock().unwrap(),
-            issuer: self.issuer.lock().unwrap(),
+            authorizer: self.authorizer.clone(),
+            issuer: self.issuer.clone(),
             solicitor: Solicitor {
                 derived_keys: &self.derived_keys,
                 store: &self.store,
@@ -120,26 +122,149 @@ impl OAuth2 {
     }
 }
 
+pub struct Endpoint<'a> {
+    registrar: &'a ClientMap,
+    authorizer: Authorizer,
+    issuer: Issuer,
+    solicitor: Solicitor<'a>,
+    scopes: Vec<Scope>,
+    response: Vacant,
+}
+
+impl<T: WebRequest + Send> oxide_auth_async::endpoint::Endpoint<T> for Endpoint<'_>
+where
+    <T as WebRequest>::Response: Default,
+    for<'a> Solicitor<'a>: OwnerSolicitor<T>,
+{
+    type Error = Error<T>;
+
+    fn registrar(&self) -> Option<&(dyn oxide_auth_async::primitives::Registrar + Sync)> {
+        Some(&self.registrar)
+    }
+
+    fn authorizer_mut(
+        &mut self,
+    ) -> Option<&mut (dyn oxide_auth_async::primitives::Authorizer + Send)> {
+        Some(&mut self.authorizer)
+    }
+
+    fn issuer_mut(&mut self) -> Option<&mut (dyn oxide_auth_async::primitives::Issuer + Send)> {
+        Some(&mut self.issuer)
+    }
+
+    fn owner_solicitor(&mut self) -> Option<&mut (dyn OwnerSolicitor<T> + Send)> {
+        Some(&mut self.solicitor)
+    }
+
+    fn scopes(&mut self) -> Option<&mut dyn Scopes<T>> {
+        Some(&mut self.scopes)
+    }
+
+    fn response(
+        &mut self,
+        request: &mut T,
+        kind: oxide_auth::endpoint::Template,
+    ) -> Result<T::Response, Self::Error> {
+        Ok(self.response.create(request, kind))
+    }
+
+    fn error(&mut self, err: OAuthError) -> Self::Error {
+        Error::OAuth(err)
+    }
+
+    fn web_error(&mut self, err: T::Error) -> Self::Error {
+        Error::Web(err)
+    }
+}
+
+#[derive(Clone)]
+pub struct Issuer {
+    issuer: Arc<Mutex<TokenMap<RandomGenerator>>>,
+}
+
+impl Default for Issuer {
+    fn default() -> Self {
+        Self {
+            issuer: Arc::new(Mutex::new(TokenMap::new(RandomGenerator::new(16)))),
+        }
+    }
+}
+
+#[async_trait]
+impl oxide_auth_async::primitives::Issuer for Issuer {
+    async fn issue(&mut self, grant: Grant) -> Result<IssuedToken, ()> {
+        oxide_auth::primitives::issuer::Issuer::issue(&mut self.issuer.lock().unwrap(), grant)
+    }
+
+    async fn refresh(&mut self, token: &str, grant: Grant) -> Result<RefreshedToken, ()> {
+        oxide_auth::primitives::issuer::Issuer::refresh(
+            &mut self.issuer.lock().unwrap(),
+            token,
+            grant,
+        )
+    }
+
+    async fn recover_token(&mut self, token: &str) -> Result<Option<Grant>, ()> {
+        oxide_auth::primitives::issuer::Issuer::recover_token(&self.issuer.lock().unwrap(), token)
+    }
+
+    async fn recover_refresh(&mut self, token: &str) -> Result<Option<Grant>, ()> {
+        oxide_auth::primitives::issuer::Issuer::recover_refresh(&self.issuer.lock().unwrap(), token)
+    }
+}
+
+#[derive(Clone)]
+pub struct Authorizer {
+    auth: Arc<Mutex<AuthMap<RandomGenerator>>>,
+}
+
+impl Default for Authorizer {
+    fn default() -> Self {
+        Self {
+            auth: Arc::new(Mutex::new(AuthMap::new(RandomGenerator::new(16)))),
+        }
+    }
+}
+
+#[async_trait]
+impl oxide_auth_async::primitives::Authorizer for Authorizer {
+    async fn authorize(&mut self, grant: Grant) -> Result<String, ()> {
+        oxide_auth::primitives::authorizer::Authorizer::authorize(
+            &mut self.auth.lock().unwrap(),
+            grant,
+        )
+    }
+
+    async fn extract(&mut self, token: &str) -> Result<Option<Grant>, ()> {
+        oxide_auth::primitives::authorizer::Authorizer::extract(
+            &mut self.auth.lock().unwrap(),
+            token,
+        )
+    }
+}
+
 pub struct Solicitor<'a> {
     derived_keys: &'a DerivedKeys,
     store: &'a Store,
 }
 
+#[async_trait]
 impl OwnerSolicitor<OAuthRequest> for Solicitor<'_> {
-    fn check_consent(
+    async fn check_consent(
         &mut self,
         _: &mut OAuthRequest,
-        _: Solicitation,
+        _: Solicitation<'_>,
     ) -> OwnerConsent<OAuthResponse> {
         unreachable!("OAuthRequest should only be used for resource requests")
     }
 }
 
+#[async_trait]
 impl OwnerSolicitor<OAuthRequestWrapper> for Solicitor<'_> {
-    fn check_consent(
+    async fn check_consent(
         &mut self,
         req: &mut OAuthRequestWrapper,
-        solicitation: Solicitation,
+        solicitation: Solicitation<'_>,
     ) -> OwnerConsent<OAuthResponse> {
         let auth_state = if req.method == Method::GET {
             AuthState::Unauthenticated(None)
@@ -153,9 +278,10 @@ impl OwnerSolicitor<OAuthRequestWrapper> for Solicitor<'_> {
                 self.store,
                 &req.cookie_jar,
                 &username,
-                &password,
+                password.into_owned(),
                 &csrf_token,
             )
+            .await
         } else {
             AuthState::Unauthenticated(Some(UnauthenticatedState::MissingUserPass))
         };
@@ -187,12 +313,12 @@ impl OwnerSolicitor<OAuthRequestWrapper> for Solicitor<'_> {
     }
 }
 
-fn attempt_authentication(
+async fn attempt_authentication(
     derived_keys: &DerivedKeys,
     store: &Store,
     cookies: &Cookies,
     username: &str,
-    password: &str,
+    password: String,
     csrf_token: &str,
 ) -> AuthState {
     if !CsrfToken::verify(derived_keys, cookies, csrf_token) {
@@ -200,20 +326,19 @@ fn attempt_authentication(
     }
 
     // TODO: actually await here
-    let Some(user) = store
-        .get_by_username(username)
-        .now_or_never()
-        .unwrap()
-        .unwrap()
-    else {
+    let Some(user) = store.get_by_username(username).await.unwrap() else {
         return AuthState::Unauthenticated(Some(UnauthenticatedState::InvalidUserPass));
     };
 
-    if user.verify_password(password) {
-        AuthState::Authenticated(user.username)
-    } else {
-        AuthState::Unauthenticated(Some(UnauthenticatedState::InvalidUserPass))
-    }
+    tokio::task::spawn_blocking(move || {
+        if user.verify_password(&password) {
+            AuthState::Authenticated(user.username)
+        } else {
+            AuthState::Unauthenticated(Some(UnauthenticatedState::InvalidUserPass))
+        }
+    })
+    .await
+    .unwrap()
 }
 
 #[derive(Template)]

@@ -26,7 +26,7 @@ pub async fn auth_required_middleware<B: Send + 'static>(
         }
     };
 
-    let grant = match state.oauth2.resource(resource_request.into()) {
+    let grant = match state.oauth2.resource(resource_request.into()).await {
         Ok(v) => v,
         Err(e) => {
             error!("Rejecting request due to it being unauthorized");
