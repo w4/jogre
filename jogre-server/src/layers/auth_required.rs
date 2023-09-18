@@ -7,6 +7,7 @@ use axum::{
     response::{IntoResponse, Response},
     RequestExt,
 };
+use oxide_auth::frontends::simple::endpoint;
 use oxide_auth_axum::{OAuthResource, WebError};
 use tracing::{debug, error};
 
@@ -29,7 +30,7 @@ pub async fn auth_required_middleware<B: Send + 'static>(
         Ok(v) => v,
         Err(e) => {
             error!("Rejecting request due to it being unauthorized");
-            return e.map_err(|e| e.pack::<WebError>()).into_response();
+            return e.map_err(endpoint::Error::pack::<WebError>).into_response();
         }
     };
 

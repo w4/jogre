@@ -54,12 +54,13 @@ impl RocksDb {
     }
 }
 
+#[allow(clippy::unnecessary_wraps)] // rocksdb api restriction
 fn rocksdb_merger(
     _new_key: &[u8],
     existing_val: Option<&[u8]>,
     operands: &MergeOperands,
 ) -> Option<Vec<u8>> {
-    let mut new_val = existing_val.map(|v| v.to_vec()).unwrap_or_default();
+    let mut new_val = existing_val.map(<[u8]>::to_vec).unwrap_or_default();
 
     for operand in operands {
         let (operation, operand) = MergeOperation::parse(operand);
@@ -153,7 +154,7 @@ impl AccountProvider for RocksDb {
         Ok(self
             .db
             .prefix_iterator_cf(access_handle, user_id.as_bytes())
-            .map(|v| v.unwrap())
+            .map(Result::unwrap)
             .filter_map(|(key, _access_level)| {
                 let Some(account) = key.strip_prefix(user_id.as_bytes()) else {
                     panic!("got invalid key from rocksdb");

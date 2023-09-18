@@ -1,4 +1,7 @@
-use std::sync::{Arc, OnceLock};
+use std::{
+    collections::{BTreeSet, HashMap},
+    sync::{Arc, OnceLock},
+};
 
 use axum::{extract::State, Extension, Json};
 use jmap_proto::{
@@ -72,11 +75,11 @@ pub async fn get(
                 max_calls_in_request: context.core_capabilities.max_calls_in_request.into(),
                 max_objects_in_get: context.core_capabilities.max_objects_in_get.into(),
                 max_objects_in_set: context.core_capabilities.max_objects_in_set.into(),
-                collation_algorithms: Default::default(),
+                collation_algorithms: BTreeSet::default(),
             },
         },
         accounts,
-        primary_accounts: Default::default(),
+        primary_accounts: HashMap::default(),
         username: username.into(),
         api_url: API_URL
             .get_or_init(|| {
