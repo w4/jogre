@@ -1,1 +1,2 @@
-pub mod js_contact;
+pub mod contacts;
+pub mod sharing;

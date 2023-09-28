@@ -3,6 +3,7 @@
 
 mod config;
 mod context;
+mod extensions;
 mod layers;
 mod methods;
 mod store;

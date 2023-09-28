@@ -27,7 +27,30 @@ use crate::{
 const REFERENCE_OCTOTHORPE: &str = "#";
 
 #[derive(Debug, Clone, Default)]
-pub struct Arguments<'a>(HashMap<Cow<'a, str>, Argument<'a>>);
+pub struct Arguments<'a>(pub HashMap<Cow<'a, str>, Argument<'a>>);
+
+impl Arguments<'_> {
+    /// Resolves a pointer, as defined in [RFC 6901]
+    ///
+    /// [RFC 6901]: https://datatracker.ietf.org/doc/html/rfc6901
+    pub fn pointer(&self, pointer: &str) -> Option<Cow<Value>> {
+        if pointer.is_empty() {
+            return Some(Cow::Owned(serde_json::to_value(self).unwrap()));
+        }
+
+        let pointer = pointer.strip_prefix('/')?;
+
+        let mut pointer = pointer.splitn(2, pointer);
+
+        if let Argument::Absolute(value) = self.0.get(pointer.next()?)? {
+            value
+                .pointer(pointer.next().unwrap_or(""))
+                .map(Cow::Borrowed)
+        } else {
+            None
+        }
+    }
+}
 
 impl<'a> Serialize for Arguments<'a> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -101,15 +124,15 @@ pub struct ResultReference<'a> {
     /// The method call id (see Section 3.2) of a previous method call in
     /// the current request.
     #[serde(borrow)]
-    result_of: Cow<'a, str>,
+    pub result_of: Cow<'a, str>,
     /// The required name of a response to that method call.
     #[serde(borrow)]
-    name: Cow<'a, str>,
+    pub name: Cow<'a, str>,
     /// A pointer into the arguments of the response selected via the name
     /// and resultOf properties.  This is a JSON Pointer [RFC6901], except
     /// it also allows the use of "*" to map through an array.
     #[serde(borrow)]
-    path: Cow<'a, str>,
+    pub path: Cow<'a, str>,
 }
 
 /// Method calls and responses are represented by the *Invocation* data
@@ -118,16 +141,16 @@ pub struct ResultReference<'a> {
 #[derive(Clone, Debug)]
 pub struct Invocation<'a> {
     /// A "String" *name* of the method to call or of the response.
-    name: Cow<'a, str>,
+    pub name: Cow<'a, str>,
     /// A "String[*]" object containing named *arguments* for that method
     /// or response.
-    arguments: Arguments<'a>,
+    pub arguments: Arguments<'a>,
     /// A "String" *method call id*: an arbitrary string from the client
     /// to be echoed back with the responses emitted by that method call
     /// (a method may return 1 or more responses, as it may make implicit
     /// calls to other methods; all responses initiated by this method
     /// call get the same method call id in the response).
-    request_id: Cow<'a, str>,
+    pub request_id: Cow<'a, str>,
 }
 
 impl<'a> Serialize for Invocation<'a> {
@@ -195,11 +218,11 @@ pub struct Request<'a> {
     /// of specifications it supports in the Session object (see
     /// Section 2), as keys on the "capabilities" property.
     #[serde_as(as = "Vec<BorrowedCow>")]
-    using: Vec<Cow<'a, str>>,
+    pub using: Vec<Cow<'a, str>>,
     /// An array of method calls to process on the server.  The method
     /// calls MUST be processed sequentially, in order.
     #[serde(borrow)]
-    method_calls: Vec<Invocation<'a>>,
+    pub method_calls: Vec<Invocation<'a>>,
     /// A map of a (client-specified) creation id to the id the server
     /// assigned when a record was successfully created.
     ///
@@ -210,7 +233,7 @@ pub struct Request<'a> {
     /// specify the creation id it assigned, prefixed with a "#" (see
     /// Section 5.3 for more details).
     #[serde(borrow)]
-    created_ids: Option<HashMap<Id<'a>, Id<'a>>>,
+    pub created_ids: Option<HashMap<Id<'a>, Id<'a>>>,
 }
 
 #[serde_as]
@@ -222,16 +245,16 @@ pub struct Response<'a> {
     /// the "methodResponses" array in the same order that the methods are
     /// processed.
     #[serde(borrow)]
-    method_responses: Invocation<'a>,
+    pub method_responses: Vec<Invocation<'a>>,
     /// A map of a (client-specified) creation id to the id the server
     /// assigned when a record was successfully created.  This MUST
     /// include all creation ids passed in the original createdIds
     /// parameter of the Request object, as well as any additional ones
     /// added for newly created records.
     #[serde(borrow)]
-    created_ids: Option<HashMap<Id<'a>, Id<'a>>>,
+    pub created_ids: Option<HashMap<Id<'a>, Id<'a>>>,
     /// The current value of the "state" string on the Session object, as
     /// described in Section 2.  Clients may use this to detect if this
     /// object has changed and needs to be refetched.
-    session_state: SessionState<'a>,
+    pub session_state: SessionState<'a>,
 }

@@ -1,14 +1,12 @@
 use std::{
-    collections::{BTreeSet, HashMap},
+    collections::HashMap,
     sync::{Arc, OnceLock},
 };
 
 use axum::{extract::State, Extension, Json};
 use jmap_proto::{
     common::{Id, SessionState},
-    endpoints::session::{
-        Account, AccountCapabilities, CoreCapability, ServerCapabilities, Session,
-    },
+    endpoints::session::{Account, AccountCapabilities, Session},
 };
 use oxide_auth::primitives::grant::Grant;
 
@@ -66,18 +64,9 @@ pub async fn get(
     );
 
     Json(Session {
-        capabilities: ServerCapabilities {
-            core: CoreCapability {
-                max_size_upload: context.core_capabilities.max_size_upload.into(),
-                max_concurrent_upload: context.core_capabilities.max_concurrent_upload.into(),
-                max_size_request: context.core_capabilities.max_size_request.into(),
-                max_concurrent_requests: context.core_capabilities.max_concurrent_requests.into(),
-                max_calls_in_request: context.core_capabilities.max_calls_in_request.into(),
-                max_objects_in_get: context.core_capabilities.max_objects_in_get.into(),
-                max_objects_in_set: context.core_capabilities.max_objects_in_set.into(),
-                collation_algorithms: BTreeSet::default(),
-            },
-        },
+        capabilities: context
+            .extension_registry
+            .build_session_capabilities(user.id),
         accounts,
         primary_accounts: HashMap::default(),
         username: username.into(),

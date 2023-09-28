@@ -1,9 +1,13 @@
+mod api;
 mod oauth;
 mod session;
 
 use std::sync::Arc;
 
-use axum::{routing::get, Router};
+use axum::{
+    routing::{any, get},
+    Router,
+};
 use tower::layer::layer_fn;
 use tower_cookies::CookieManagerLayer;
 
@@ -15,6 +19,7 @@ use crate::{
 pub fn router(context: Arc<Context>) -> Router {
     Router::new()
         .route("/.well-known/jmap", get(session::get))
+        .route("/api/*", any(api::handle))
         // only apply auth requirement on endpoints above
         .layer(axum::middleware::from_fn_with_state(
             context.clone(),

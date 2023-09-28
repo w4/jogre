@@ -2,6 +2,11 @@ use std::sync::Arc;
 
 use crate::{
     config::{Config, CoreCapabilities},
+    extensions,
+    extensions::{
+        sharing::{Principals, PrincipalsOwner},
+        ExtensionRegistry,
+    },
     store::Store,
 };
 
@@ -12,6 +17,7 @@ pub struct Context {
     pub store: Arc<Store>,
     pub base_url: url::Url,
     pub core_capabilities: CoreCapabilities,
+    pub extension_registry: ExtensionRegistry,
 }
 
 impl Context {
@@ -19,11 +25,21 @@ impl Context {
         let derived_keys = Arc::new(DerivedKeys::new(&config.private_key));
         let store = Arc::new(Store::from_config(config.store));
 
+        let extension_registry = ExtensionRegistry {
+            core: extensions::core::Core {
+                core_capabilities: config.core_capabilities,
+            },
+            contacts: extensions::contacts::Contacts {},
+            sharing_principals: Principals {},
+            sharing_principals_owner: PrincipalsOwner {},
+        };
+
         Self {
             oauth2: oauth2::OAuth2::new(store.clone(), derived_keys),
             store,
             base_url: config.base_url,
             core_capabilities: config.core_capabilities,
+            extension_registry,
         }
     }
 }

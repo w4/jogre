@@ -2,15 +2,18 @@ use std::{borrow::Cow, collections::HashMap};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use strum::Display;
+
+use crate::endpoints::{Argument, Arguments, Invocation};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct RequestError {
     #[serde(rename = "type")]
-    type_: ProblemType,
-    status: u16,
-    detail: Cow<'static, str>,
+    pub type_: ProblemType,
+    pub status: u16,
+    pub detail: Cow<'static, str>,
     #[serde(flatten)]
-    meta: HashMap<String, Value>,
+    pub meta: HashMap<String, Value>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -44,7 +47,8 @@ pub enum ProblemType {
 /// Any further method calls in the request MUST then be processed as
 /// normal.  Errors at the method level MUST NOT generate an HTTP-level
 /// error.
-#[derive(Serialize, Deserialize, Debug, Copy, Clone)]
+#[derive(Serialize, Deserialize, Debug, Copy, Clone, Display)]
+#[serde(tag = "type")]
 pub enum MethodError {
     /// Some internal server resource was temporarily unavailable.
     ///
@@ -86,4 +90,20 @@ pub enum MethodError {
     /// This method modifies state, but the account is read-only (as returned on
     /// the corresponding Account object in the JMAP Session resource).
     AccountReadOnly,
+}
+
+impl MethodError {
+    pub fn into_invocation(self, request_id: Cow<'_, str>) -> Invocation<'_> {
+        let mut arguments = Arguments::default();
+        arguments.0.insert(
+            Cow::Borrowed("type"),
+            Argument::Absolute(Value::String(self.to_string())),
+        );
+
+        Invocation {
+            name: "error".into(),
+            arguments,
+            request_id,
+        }
+    }
 }

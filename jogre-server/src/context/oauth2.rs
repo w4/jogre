@@ -325,7 +325,6 @@ async fn attempt_authentication(
         return AuthState::Unauthenticated(Some(UnauthenticatedState::InvalidCsrfToken));
     }
 
-    // TODO: actually await here
     let Some(user) = store.get_by_username(username).await.unwrap() else {
         return AuthState::Unauthenticated(Some(UnauthenticatedState::InvalidUserPass));
     };

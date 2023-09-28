@@ -4,6 +4,7 @@ use std::{
 };
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use serde_with::{serde_as, BorrowCow};
 
 use crate::common::{Id, SessionState, UnsignedInt};
@@ -24,8 +25,11 @@ pub struct Session<'a> {
     /// a URI for a capability supported by the server.  The value for
     /// each of these keys is an object with further information about the
     /// server's capabilities in relation to that capability.
+    ///
+    /// The capabilities object MUST include a property called
+    /// "urn:ietf:params:jmap:core".
     #[serde(borrow)]
-    pub capabilities: ServerCapabilities<'a>,
+    pub capabilities: HashMap<Cow<'a, str>, Value>,
     /// A map of an account id to an Account object for each account (see
     /// Section 1.6.2) the user has access to.
     #[serde(borrow)]
@@ -76,14 +80,6 @@ pub struct Session<'a> {
     /// need to refetch the object.
     #[serde(borrow)]
     pub state: SessionState<'a>,
-}
-
-#[derive(Deserialize, Serialize, Clone, Debug)]
-pub struct ServerCapabilities<'a> {
-    /// The capabilities object MUST include a property called
-    /// "urn:ietf:params:jmap:core".
-    #[serde(rename = "urn:ietf:params:jmap:core", borrow)]
-    pub core: CoreCapability<'a>,
 }
 
 #[serde_as]
