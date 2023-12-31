@@ -19,7 +19,7 @@ use crate::{
 pub fn router(context: Arc<Context>) -> Router {
     Router::new()
         .route("/.well-known/jmap", get(session::get))
-        .route("/api/*", any(api::handle))
+        .route("/api", any(api::handle))
         // only apply auth requirement on endpoints above
         .layer(axum::middleware::from_fn_with_state(
             context.clone(),

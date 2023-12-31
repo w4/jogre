@@ -5,7 +5,9 @@ use uuid::Uuid;
 
 use crate::{
     config::CoreCapabilities,
-    extensions::{JmapExtension, JmapSessionCapabilityExtension},
+    extensions::{
+        router::ExtensionRouter, JmapEndpoint, JmapExtension, JmapSessionCapabilityExtension,
+    },
 };
 
 #[derive(Clone)]
@@ -15,6 +17,10 @@ pub struct Core {
 
 impl JmapExtension for Core {
     const EXTENSION: &'static str = "urn:ietf:params:jmap:core";
+
+    fn router(&self) -> ExtensionRouter<Self> {
+        ExtensionRouter::default().register(Echo)
+    }
 }
 
 impl JmapSessionCapabilityExtension for Core {
@@ -31,5 +37,18 @@ impl JmapSessionCapabilityExtension for Core {
             max_objects_in_set: self.core_capabilities.max_objects_in_set.into(),
             collation_algorithms: BTreeSet::default(),
         }
+    }
+}
+
+pub struct Echo;
+
+impl JmapEndpoint<Core> for Echo {
+    type Parameters<'de> = &'de serde_json::value::RawValue;
+    type Response<'s> = &'s serde_json::value::RawValue;
+
+    const ENDPOINT: &'static str = "echo";
+
+    fn handle<'de>(&self, _extension: &Core, params: Self::Parameters<'de>) -> Self::Response<'de> {
+        params
     }
 }

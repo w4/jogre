@@ -5,7 +5,7 @@ use crate::{
     extensions,
     extensions::{
         sharing::{Principals, PrincipalsOwner},
-        ExtensionRegistry,
+        ExtensionRegistry, ExtensionRouterRegistry,
     },
     store::Store,
 };
@@ -18,6 +18,7 @@ pub struct Context {
     pub base_url: url::Url,
     pub core_capabilities: CoreCapabilities,
     pub extension_registry: ExtensionRegistry,
+    pub extension_router_registry: ExtensionRouterRegistry,
 }
 
 impl Context {
@@ -34,12 +35,15 @@ impl Context {
             sharing_principals_owner: PrincipalsOwner {},
         };
 
+        let extension_router_registry = extension_registry.build_router_registry();
+
         Self {
             oauth2: oauth2::OAuth2::new(store.clone(), derived_keys),
             store,
             base_url: config.base_url,
             core_capabilities: config.core_capabilities,
             extension_registry,
+            extension_router_registry,
         }
     }
 }

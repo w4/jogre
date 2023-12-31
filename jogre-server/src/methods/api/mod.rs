@@ -8,11 +8,7 @@ use jmap_proto::{
 };
 use oxide_auth::primitives::grant::Grant;
 
-use crate::{
-    context::Context,
-    extensions::{ConcreteData, ResolvedArguments},
-    store::UserProvider,
-};
+use crate::{context::Context, extensions::ResolvedArguments, store::UserProvider};
 
 pub async fn handle(
     State(context): State<Arc<Context>>,
@@ -55,20 +51,33 @@ pub async fn handle(
             continue;
         };
 
-        let Some(_request) =
-            ConcreteData::parse(invocation_request.name.as_ref(), resolved_arguments)
-        else {
+        // let Some(_request) =
+        //     ConcreteData::parse(invocation_request.name.as_ref(), resolved_arguments)
+        // else {
+        //     response
+        //         .method_responses
+        //         .push(MethodError::UnknownMethod.into_invocation(invocation_request.request_id));
+        //     continue;
+        // };
+
+        let arguments = if let Some(v) = context.extension_router_registry.handle(
+            invocation_request.name.as_ref(),
+            &context.extension_registry,
+            resolved_arguments,
+        ) {
+            v.into_iter()
+                .map(|(k, v)| (Cow::Owned(k), Argument::Absolute(v)))
+                .collect()
+        } else {
             response
                 .method_responses
                 .push(MethodError::UnknownMethod.into_invocation(invocation_request.request_id));
             continue;
         };
 
-        // TODO: call handler
-
         response.method_responses.push(Invocation {
             name: invocation_request.name,
-            arguments: Arguments(HashMap::new()),
+            arguments: Arguments(arguments),
             request_id: invocation_request.request_id,
         });
     }

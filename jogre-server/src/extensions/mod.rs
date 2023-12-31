@@ -1,26 +1,64 @@
-use std::{borrow::Cow, collections::HashMap};
+use std::{borrow::Cow, collections::HashMap, marker::PhantomData};
 
 use jmap_proto::{extensions::sharing as proto_sharing, Value};
+use router::ExtensionRouter;
 use serde::{
     de::{value::CowStrDeserializer, DeserializeSeed, MapAccess, Visitor},
     forward_to_deserialize_any, Deserialize, Deserializer, Serialize,
 };
+use serde_json::value::RawValue;
 use uuid::Uuid;
 
 pub mod contacts;
 pub mod core;
+pub mod router;
 pub mod sharing;
 
 /// Defines a base extension to the JMAP specification.
-pub trait JmapExtension {
+pub trait JmapExtension: Sized {
     /// A URI that describes this extension (eg. `urn:ietf:params:jmap:contacts`).
     const EXTENSION: &'static str;
+
+    fn router(&self) -> ExtensionRouter<Self> {
+        ExtensionRouter::default()
+    }
 }
 
 /// Defines an extension that can handle reads/writes.
 pub trait JmapDataExtension<D>: JmapExtension {
     /// Endpoint from which this data type is exposed from (ie. `ContactBook`).
     const ENDPOINT: &'static str;
+}
+
+pub struct Get<D> {
+    _phantom: PhantomData<fn(D)>,
+}
+
+impl<D> Default for Get<D> {
+    fn default() -> Self {
+        Self {
+            _phantom: PhantomData,
+        }
+    }
+}
+
+impl<D, Ext: JmapDataExtension<D>> JmapEndpoint<Ext> for Get<D> {
+    type Parameters<'de> = ();
+    type Response<'s> = ();
+    const ENDPOINT: &'static str = "";
+
+    fn handle<'de>(&self, extension: &Ext, params: Self::Parameters<'de>) -> Self::Response<'de> {
+        todo!()
+    }
+}
+
+pub trait JmapEndpoint<E: JmapExtension> {
+    type Parameters<'de>: Deserialize<'de>;
+    type Response<'s>: Serialize + 's;
+
+    const ENDPOINT: &'static str;
+
+    fn handle<'de>(&self, extension: &E, params: Self::Parameters<'de>) -> Self::Response<'de>;
 }
 
 /// Defines an extension which should be exposed via session capabilities.
@@ -38,6 +76,28 @@ pub trait JmapAccountCapabilityExtension: JmapExtension {
     type Metadata: Serialize;
 
     fn build(&self, user: Uuid, account: Uuid) -> Self::Metadata;
+}
+
+pub struct ExtensionRouterRegistry {
+    pub core: ExtensionRouter<core::Core>,
+}
+
+impl ExtensionRouterRegistry {
+    pub fn handle(
+        &self,
+        uri: &str,
+        registry: &ExtensionRegistry,
+        params: ResolvedArguments<'_>,
+    ) -> Option<HashMap<String, Value>> {
+        let Some((namespace, uri)) = uri.split_once('/') else {
+            return None;
+        };
+
+        match namespace {
+            "Core" => self.core.handle(&registry.core, uri, params),
+            _ => None,
+        }
+    }
 }
 
 /// Registry containing all extensions that can be handled by Jogre.
@@ -66,32 +126,10 @@ impl ExtensionRegistry {
         );
         out
     }
-}
 
-/// Defines all the data types that can be handled by our [`JmapDataExtension`]
-/// extensions.
-pub enum ConcreteData<'a> {
-    AddressBook(contacts::AddressBook),
-    Principal(proto_sharing::Principal<'a>),
-    ShareNotification(proto_sharing::ShareNotification<'a>),
-}
-
-impl<'a> ConcreteData<'a> {
-    /// Determines which extension should handle an incoming request by
-    /// the defined endpoint, and deserializes the request into the
-    /// relevant data type.
-    pub fn parse(endpoint: &str, data: ResolvedArguments<'a>) -> Option<Self> {
-        match endpoint {
-            <contacts::Contacts as JmapDataExtension<contacts::AddressBook>>::ENDPOINT => {
-                Some(Self::AddressBook(Deserialize::deserialize(data).unwrap()))
-            }
-            <sharing::Principals as JmapDataExtension<proto_sharing::Principal>>::ENDPOINT => {
-                Some(Self::Principal(Deserialize::deserialize(data).unwrap()))
-            },
-            <sharing::Principals as JmapDataExtension<proto_sharing::ShareNotification>>::ENDPOINT => {
-                Some(Self::ShareNotification(Deserialize::deserialize(data).unwrap()))
-            },
-            _ => None,
+    pub fn build_router_registry(&self) -> ExtensionRouterRegistry {
+        ExtensionRouterRegistry {
+            core: self.core.router(),
         }
     }
 }

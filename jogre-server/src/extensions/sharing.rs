@@ -8,7 +8,7 @@ use jmap_proto::{
 use uuid::Uuid;
 
 use crate::extensions::{
-    JmapAccountCapabilityExtension, JmapDataExtension, JmapExtension,
+    router::ExtensionRouter, Get, JmapAccountCapabilityExtension, JmapDataExtension, JmapExtension,
     JmapSessionCapabilityExtension,
 };
 
@@ -18,6 +18,12 @@ pub struct Principals {}
 
 impl JmapExtension for Principals {
     const EXTENSION: &'static str = "urn:ietf:params:jmap:principals";
+
+    fn router(&self) -> ExtensionRouter<Self> {
+        ExtensionRouter::default()
+            .register(Get::<Principal<'static>>::default())
+            .register(Get::<ShareNotification<'static>>::default())
+    }
 }
 
 impl JmapSessionCapabilityExtension for Principals {

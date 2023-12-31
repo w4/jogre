@@ -3,12 +3,16 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::extensions::{JmapDataExtension, JmapExtension};
+use crate::extensions::{router::ExtensionRouter, Get, JmapDataExtension, JmapExtension};
 
 pub struct Contacts {}
 
 impl JmapExtension for Contacts {
     const EXTENSION: &'static str = "urn:ietf:params:jmap:contacts";
+
+    fn router(&self) -> ExtensionRouter<Self> {
+        ExtensionRouter::default().register(Get::<AddressBook>::default())
+    }
 }
 
 impl JmapDataExtension<AddressBook> for Contacts {
